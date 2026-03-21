@@ -1,4 +1,5 @@
 import { Sequelize } from 'sequelize';
+import pg from 'pg';
 import { UserFactory } from './user';
 
 const dbUrl = process.env.DATABASE_URL;
@@ -6,6 +7,7 @@ const dbUrl = process.env.DATABASE_URL;
 export const sequelize = dbUrl
   ? new Sequelize(dbUrl, {
       dialect: 'postgres',
+      dialectModule: pg,
       logging: false,
       dialectOptions: {
         ssl: {
@@ -22,6 +24,7 @@ export const sequelize = dbUrl
         host: process.env.DB_HOST || 'localhost',
         port: Number(process.env.DB_PORT || 5432),
         dialect: 'postgres',
+        dialectModule: pg,
         logging: false,
         dialectOptions: {
           ssl: {
