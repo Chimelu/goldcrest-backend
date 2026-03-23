@@ -3,7 +3,7 @@ import bcrypt from 'bcrypt';
 import jwt from 'jsonwebtoken';
 import { User } from '../models';
 import { authMiddleware, AuthRequest } from '../middleware/auth';
-import { sendVerificationOtp } from '../services/mail';
+import { sendPasswordResetOtp, sendVerificationOtp } from '../services/mail';
 import { generateOtp, OTP_TTL_MS } from '../utils/otp';
 
 const router = Router();
@@ -17,6 +17,19 @@ async function assignOtpAndEmail(user: InstanceType<typeof User>, email: string)
   await user.save();
   await sendVerificationOtp(email, otp);
 }
+
+async function assignPasswordResetOtp(user: InstanceType<typeof User>, email: string) {
+  const otp = generateOtp();
+  const otpHash = await bcrypt.hash(otp, 10);
+  const otpExpiresAt = new Date(Date.now() + OTP_TTL_MS);
+  user.otpHash = otpHash;
+  user.otpExpiresAt = otpExpiresAt;
+  await user.save();
+  await sendPasswordResetOtp(email, otp);
+}
+
+const GENERIC_RESET_MESSAGE =
+  'If an account exists for this email, you will receive a reset code shortly.';
 
 router.post('/register', async (req, res) => {
   const { email, password, fullName } = req.body;
@@ -38,6 +51,7 @@ router.post('/register', async (req, res) => {
       passwordHash,
       fullName,
       isVerified: false,
+      canTransact: false,
       otpHash: null,
       otpExpiresAt: null,
     });
@@ -145,6 +159,134 @@ router.post('/resend-otp', async (req, res) => {
   }
 });
 
+/** Verified accounts only — uses same otpHash fields as registration (no overlap for verified users). */
+router.post('/forgot-password', async (req, res) => {
+  const { email } = req.body;
+  if (!email) {
+    return res.status(400).json({ message: 'Email is required' });
+  }
+
+  const user = await User.findOne({ where: { email } });
+  if (!user || !user.isVerified) {
+    return res.json({ message: GENERIC_RESET_MESSAGE });
+  }
+
+  try {
+    await assignPasswordResetOtp(user, email);
+    return res.json({ message: GENERIC_RESET_MESSAGE });
+  } catch (err) {
+    console.error('Forgot password error:', err);
+    const msg = err instanceof Error ? err.message : '';
+    if (msg.includes('Mail is not configured') || msg.includes('ZOHO_EMAIL')) {
+      return res.status(503).json({
+        message: 'Email service is not configured on the server.',
+      });
+    }
+    return res.status(500).json({ message: 'Could not send reset email. Try again later.' });
+  }
+});
+
+router.post('/resend-password-reset', async (req, res) => {
+  const { email } = req.body;
+  if (!email) {
+    return res.status(400).json({ message: 'Email is required' });
+  }
+
+  const user = await User.findOne({ where: { email } });
+  if (!user || !user.isVerified) {
+    return res.json({ message: GENERIC_RESET_MESSAGE });
+  }
+
+  try {
+    await assignPasswordResetOtp(user, email);
+    return res.json({ message: GENERIC_RESET_MESSAGE });
+  } catch (err) {
+    console.error('Resend password reset error:', err);
+    return res.status(500).json({ message: 'Could not send email. Try again later.' });
+  }
+});
+
+router.post('/verify-reset-otp', async (req, res) => {
+  const { email, otp } = req.body;
+
+  if (!email || !otp) {
+    return res.status(400).json({ message: 'Email and code are required' });
+  }
+
+  const code = String(otp).replace(/\D/g, '').slice(0, 6);
+  if (code.length !== 6) {
+    return res.status(400).json({ message: 'Enter the 6-digit code from your email' });
+  }
+
+  const user = await User.findOne({ where: { email } });
+  if (!user || !user.isVerified) {
+    return res.status(400).json({ message: 'Invalid or expired code' });
+  }
+
+  if (!user.otpHash || !user.otpExpiresAt) {
+    return res.status(400).json({ message: 'No active reset code. Request a new one.' });
+  }
+
+  if (new Date() > user.otpExpiresAt) {
+    return res.status(400).json({ message: 'Code expired. Request a new reset link.' });
+  }
+
+  const match = await bcrypt.compare(code, user.otpHash);
+  if (!match) {
+    return res.status(400).json({ message: 'Invalid code' });
+  }
+
+  user.otpHash = null;
+  user.otpExpiresAt = null;
+  await user.save();
+
+  const secret = process.env.JWT_SECRET || 'dev-secret';
+  const resetToken = jwt.sign(
+    { userId: user.id, purpose: 'password-reset' },
+    secret,
+    { expiresIn: '15m' },
+  );
+
+  return res.json({
+    message: 'Code verified. Set your new password.',
+    resetToken,
+  });
+});
+
+router.post('/reset-password', async (req, res) => {
+  const { resetToken, newPassword } = req.body;
+
+  if (!resetToken || !newPassword) {
+    return res.status(400).json({ message: 'Reset token and new password are required' });
+  }
+
+  if (String(newPassword).length < 8) {
+    return res.status(400).json({ message: 'Password must be at least 8 characters' });
+  }
+
+  const secret = process.env.JWT_SECRET || 'dev-secret';
+  let payload: { userId: number; purpose?: string };
+  try {
+    payload = jwt.verify(resetToken, secret) as { userId: number; purpose?: string };
+  } catch {
+    return res.status(400).json({ message: 'Invalid or expired reset link. Start again.' });
+  }
+
+  if (payload.purpose !== 'password-reset' || typeof payload.userId !== 'number') {
+    return res.status(400).json({ message: 'Invalid reset token' });
+  }
+
+  const user = await User.findByPk(payload.userId);
+  if (!user) {
+    return res.status(404).json({ message: 'User not found' });
+  }
+
+  user.passwordHash = await bcrypt.hash(String(newPassword), 10);
+  await user.save();
+
+  return res.json({ message: 'Password updated. You can sign in now.' });
+});
+
 router.post('/login', async (req, res) => {
   const { email, password } = req.body;
 
@@ -181,6 +323,7 @@ router.post('/login', async (req, res) => {
       email: user.email,
       fullName: user.fullName,
       isVerified: user.isVerified,
+      canTransact: user.canTransact,
     },
   });
 });
@@ -200,6 +343,7 @@ router.get('/profile', authMiddleware, async (req: AuthRequest, res) => {
     email: user.email,
     fullName: user.fullName,
     isVerified: user.isVerified,
+    canTransact: user.canTransact,
   });
 });
 

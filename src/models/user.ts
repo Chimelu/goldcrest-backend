@@ -11,6 +11,7 @@ interface UserAttributes {
   passwordHash: string;
   fullName: string | null;
   isVerified: boolean;
+  canTransact: boolean;
   otpHash: string | null;
   otpExpiresAt: Date | null;
   createdAt?: Date;
@@ -19,7 +20,7 @@ interface UserAttributes {
 
 type UserCreationAttributes = Optional<
   UserAttributes,
-  'id' | 'fullName' | 'isVerified' | 'otpHash' | 'otpExpiresAt'
+  'id' | 'fullName' | 'isVerified' | 'canTransact' | 'otpHash' | 'otpExpiresAt'
 >;
 
 export class User
@@ -31,6 +32,7 @@ export class User
   public passwordHash!: string;
   public fullName!: string | null;
   public isVerified!: boolean;
+  public canTransact!: boolean;
   public otpHash!: string | null;
   public otpExpiresAt!: Date | null;
 
@@ -60,6 +62,11 @@ export function UserFactory(sequelize: Sequelize) {
         allowNull: true,
       },
       isVerified: {
+        type: DataTypes.BOOLEAN,
+        allowNull: false,
+        defaultValue: false,
+      },
+      canTransact: {
         type: DataTypes.BOOLEAN,
         allowNull: false,
         defaultValue: false,

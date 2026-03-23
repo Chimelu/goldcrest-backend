@@ -50,3 +50,22 @@ export async function sendVerificationOtp(toEmail: string, otp: string): Promise
     `,
   });
 }
+
+export async function sendPasswordResetOtp(toEmail: string, otp: string): Promise<void> {
+  const from = ZOHO_EMAIL;
+  if (!from) throw new Error('ZOHO_EMAIL is not set');
+
+  const transport = getTransporter();
+  await transport.sendMail({
+    from: `"Goldcrest" <${from}>`,
+    to: toEmail,
+    subject: 'Reset your Goldcrest password',
+    text: `Your password reset code is: ${otp}\n\nThis code expires in 15 minutes.\n\nIf you did not request a reset, you can ignore this email.`,
+    html: `
+      <p>Your password reset code is:</p>
+      <p style="font-size: 24px; font-weight: bold; letter-spacing: 4px;">${otp}</p>
+      <p>This code expires in 15 minutes.</p>
+      <p style="color: #666; font-size: 12px;">If you did not request a password reset, you can ignore this email.</p>
+    `,
+  });
+}

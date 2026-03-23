@@ -31,6 +31,11 @@ function UserFactory(sequelize) {
             allowNull: false,
             defaultValue: false,
         },
+        canTransact: {
+            type: sequelize_1.DataTypes.BOOLEAN,
+            allowNull: false,
+            defaultValue: false,
+        },
         otpHash: {
             type: sequelize_1.DataTypes.STRING,
             allowNull: true,

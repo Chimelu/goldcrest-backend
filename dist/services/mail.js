@@ -4,6 +4,7 @@ var __importDefault = (this && this.__importDefault) || function (mod) {
 };
 Object.defineProperty(exports, "__esModule", { value: true });
 exports.sendVerificationOtp = sendVerificationOtp;
+exports.sendPasswordResetOtp = sendPasswordResetOtp;
 const nodemailer_1 = __importDefault(require("nodemailer"));
 const ZOHO_EMAIL = process.env.ZOHO_EMAIL;
 const ZOHO_PASSWORD = process.env.ZOHO_PASSWORD;
@@ -47,6 +48,24 @@ async function sendVerificationOtp(toEmail, otp) {
       <p style="font-size: 24px; font-weight: bold; letter-spacing: 4px;">${otp}</p>
       <p>This code expires in 15 minutes.</p>
       <p style="color: #666; font-size: 12px;">If you did not create an account, you can ignore this email.</p>
+    `,
+    });
+}
+async function sendPasswordResetOtp(toEmail, otp) {
+    const from = ZOHO_EMAIL;
+    if (!from)
+        throw new Error('ZOHO_EMAIL is not set');
+    const transport = getTransporter();
+    await transport.sendMail({
+        from: `"Goldcrest" <${from}>`,
+        to: toEmail,
+        subject: 'Reset your Goldcrest password',
+        text: `Your password reset code is: ${otp}\n\nThis code expires in 15 minutes.\n\nIf you did not request a reset, you can ignore this email.`,
+        html: `
+      <p>Your password reset code is:</p>
+      <p style="font-size: 24px; font-weight: bold; letter-spacing: 4px;">${otp}</p>
+      <p>This code expires in 15 minutes.</p>
+      <p style="color: #666; font-size: 12px;">If you did not request a password reset, you can ignore this email.</p>
     `,
     });
 }
